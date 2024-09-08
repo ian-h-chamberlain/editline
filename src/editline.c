@@ -1,4 +1,4 @@
-/* 
+/*
  * Copyright (c) 1992, 1993  Simmule Turner and Rich Salz
  * All rights reserved.
  *
@@ -1029,11 +1029,18 @@ static el_status_t meta(void)
 {
     int c;
     el_keymap_t *kp;
+    int extra_meta = 0;
 
     if ((c = tty_get()) == EOF)
         return CSeof;
 
 #ifdef CONFIG_ANSI_ARROWS
+    /* See: https://en.wikipedia.org/wiki/ANSI_escape_code */
+    if (c == '\e') {
+        extra_meta = 1;
+        c = tty_get();
+    }
+
     /* Also include VT-100 arrows. */
     if (c == '[' || c == 'O') {
         switch (tty_get()) {
@@ -1043,16 +1050,26 @@ static el_status_t meta(void)
             char seq[4] = { 0 };
             seq[0] = tty_get();
 
+            /* \e[1~ */
             if (seq[0] == '~')
                 return beg_line(); /* Home */
 
             for (c = 1; c < 3; c++)
                 seq[c] = tty_get();
 
-            if (!strncmp(seq, ";5C", 3))
-                return fd_word(); /* Ctrl+Right */
-            if (!strncmp(seq, ";5D", 3))
-                return bk_word(); /* Ctrl+Left */
+            if (seq[0] != ';') break;
+
+            switch (seq[1]) {
+                case '3':  // Alt-
+                case '5':  // Ctrl-
+                case '9':  // Meta-
+                    switch (seq[2]) {
+                        case 'C':  // Right
+                            return fd_word();
+                        case 'D':  // Left
+                            return bk_word();
+                    }
+            }
 
             break;
         }
@@ -1065,8 +1082,10 @@ static el_status_t meta(void)
         case '8':  tty_get(); return end_line(); /* End (urxvt) */
         case 'A':  return h_prev();              /* Up */
         case 'B':  return h_next();              /* Down */
-        case 'C':  return fd_char();             /* Left */
-        case 'D':  return bk_char();             /* Right */
+        case 'C':                                /* Left */
+            return extra_meta ? fd_word() : fd_char();
+        case 'D':                                /* Right */
+            return extra_meta ? bk_word() : bk_char();
         case 'F':  return end_line();            /* End */
         case 'H':  return beg_line();            /* Home */
         default:                                 /* Fall through */
